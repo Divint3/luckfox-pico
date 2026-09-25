@@ -1,0 +1,124 @@
+name: Luckfox Pico SDK Build
+
+# 触发条件：
+#  - push 到 main 分支时自动编译
+#  - 手动触发时可选择板级配置
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'media/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      board_config:
+        description: '板级配置文件名（位于 project/cfg/BoardConfig_IPC/）'
+        required: false
+        default: 'BoardConfig-SD_CARD-Buildroot-RV1103_Luckfox_Pico-IPC.mk'
+
+env:
+  # 默认板级配置，可在 workflow_dispatch 时覆盖
+  BOARD_CONFIG_FILE: ${{ github.event.inputs.board_config || 'BoardConfig-SD_CARD-Buildroot-RV1103_Luckfox_Pico-IPC.mk' }}
+  TOOLCHAIN_DIR: tools/linux/toolchain/arm-rockchip830-linux-uclibcgnueabihf
+
+jobs:
+  build:
+    name: Build Firmware
+    runs-on: ubuntu-22.04        # README 推荐 Ubuntu 22.04，勿用 ubuntu-latest(24.04)
+    timeout-minutes: 300         # 全量编译（kernel+buildroot+media+app+打包）耗时较长
+
+    steps:
+      - name: Checkout SDK
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0         # build.sh 会读取 git 信息，避免 shallow clone 问题
+
+      - name: Free disk space
+        # 全量编译产物可达 20GB+，清理 runner 预装软件释放空间
+        run: |
+          echo "Available storage before cleanup:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/boost /imagegeneration
+          echo "Available storage after cleanup:"
+          df -h /
+
+      - name: Install dependencies
+        # 官方 README 提供的依赖列表
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git ssh make gcc gcc-multilib g++-multilib module-assistant \
+            expect g++ gawk texinfo libssl-dev bison flex fakeroot cmake \
+            unzip gperf autoconf device-tree-compiler libncurses5-dev \
+            pkg-config bc python-is-python3 passwd openssl openssh-server \
+            openssh-client vim file cpio rsync libncurses-dev
+
+      # 缓存 buildroot 下载目录，避免每次 CI 重新拉取全部源码包
+      - name: Cache buildroot downloads
+        uses: actions/cache@v4
+        with:
+          path: sysdrv/source/buildroot/buildroot-2023.02.6/dl
+          key: buildroot-dl-${{ runner.os }}-${{ hashFiles('sysdrv/source/buildroot/**/*.mk') }}
+          restore-keys: |
+            buildroot-dl-${{ runner.os }}-
+
+      - name: Select board config (non-interactive lunch)
+        # 等价于 ./build.sh lunch：直接建立 .BoardConfig.mk 符号链接
+        # 可用配置见 project/cfg/BoardConfig_IPC/ 目录
+        run: |
+          CFG="project/cfg/BoardConfig_IPC/${BOARD_CONFIG_FILE}"
+          if [ ! -f "$CFG" ]; then
+            echo "板级配置不存在: $CFG"
+            echo "可选配置:"
+            ls project/cfg/BoardConfig_IPC/
+            exit 1
+          fi
+          ln -sf "$CFG" .BoardConfig.mk
+          ./build.sh info || true
+
+      - name: Setup cross-compilation toolchain
+        run: |
+          cd $TOOLCHAIN_DIR
+          source ./env_install_toolchain.sh
+          echo "$PWD/bin" >> $GITHUB_PATH
+          arm-rockchip830-linux-uclibcgnueabihf-gcc --version | head -1
+
+      - name: Build all and pack firmware
+        run: |
+          ./build.sh allsave
+
+      - name: List build output
+        if: always()
+        run: |
+          echo "=== output/image ==="
+          ls -lh output/image/ 2>/dev/null || true
+          echo "=== all *.img ==="
+          find output -name "*.img" -o -name "*.tar" 2>/dev/null | head -20
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luckfox-firmware-${{ github.sha }}
+          path: |
+            output/image/
+            output/out/**/*.img
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.sha }}
+          path: |
+            output/
+            !output/out/sysdrv/source/**
+            !output/out/media/source/**
+          if-no-files-found: ignore
+          retention-days: 7
