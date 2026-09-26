@@ -108,6 +108,10 @@ jobs:
           test -f $KERNEL_OUT/Module.symvers || { echo "Module.symvers 缺失，无法进行外部模块构建"; exit 1; }
           grep -q "CONFIG_MODVERSIONS=y" $KERNEL_OUT/.config || echo "提示: 内核未启用 MODVERSIONS, 缺失符号仅告警不阻断"
 
+      # 时间标记: 之后生成的 .ko 才算本次产物 (用于区分 SDK 自带/历史 .ko)
+      - name: Stamp build marker
+        run: touch .module_build_marker
+
       - name: Build modules
         env:
           MODULE_PATHS: ${{ github.event.inputs.module_paths }}
@@ -133,23 +137,31 @@ jobs:
             fi
           done
 
-      - name: Verify and list artifacts
+      # 只收集比 marker 新的 .ko (即本次编译产物), 按原目录结构暂存
+      - name: Collect and verify artifacts
         run: |
-          echo "=== 产物清单 ==="
-          find . -maxdepth 4 -name "*.ko" -newer .BoardConfig.mk -type f | tee /tmp/ko.list
-          echo "=== 模块信息 (vermagic 应与内核一致) ==="
+          STAGING=output/modules_this_build
+          rm -rf $STAGING && mkdir -p $STAGING
+
+          echo "=== 本次编译产物 ==="
+          find . -path ./sysdrv/source/objs_kernel -prune -o \
+                 \( -name "*.ko" -newer .module_build_marker -type f \) -print | tee /tmp/ko.list
+          [ -s /tmp/ko.list ] || { echo "::error::未收集到任何本次编译的 .ko"; exit 1; }
+
           while read -r ko; do
+            cp --parents "$ko" $STAGING/
             echo "--- $ko"
-            modinfo "$ko" 2>/dev/null | grep -E "^(filename|version|vermagic|license|depends):" || file "$ko"
+            modinfo "$ko" 2>/dev/null | grep -E "^(version|vermagic|license|depends):" || file "$ko"
           done < /tmp/ko.list
 
-      - name: Upload kernel modules
+          echo "=== 暂存目录 ==="
+          find $STAGING -type f
+
+      - name: Upload kernel modules (this build only)
         uses: actions/upload-artifact@v4
         with:
           name: kernel-modules-${{ github.run_number }}
-          path: |
-            sysdrv/drv_ko/out/*.ko
-            **/*.ko
+          path: output/modules_this_build/
           if-no-files-found: error
           retention-days: 7
 
