@@ -1,0 +1,165 @@
+name: Kernel Module Pipeline
+
+# 专用内核模块构建流水线（不编 buildroot/rootfs，不打包固件）
+#
+# 流程: 选板(非交互) → 编译内核(带 objs_kernel 缓存, 命中则增量)
+#      → 按模块目录构建 .ko → 上传 artifact
+#
+# 模块目录两种风格自动识别:
+#   A. SDK 外置模块（Makefile 引用 ../../Makefile.param, 如 sysdrv/drv_ko/hello）
+#      → make -C <模块目录>，由模块自带 Makefile 完成 O=/M= 处理
+#   B. 纯 kbuild 模块（Makefile 仅含 obj-m := xxx.o）
+#      → make -C kernel O=objs_kernel M=<模块目录> modules
+#
+# 前提: 已存在一次成功的内核构建缓存；首次运行会完整编译内核（约 20-40 分钟）
+on:
+  workflow_dispatch:
+    inputs:
+      module_paths:
+        description: '模块目录（相对仓库根，空格分隔可传多个）'
+        required: false
+        default: 'sysdrv/drv_ko/hello'
+      board_config:
+        description: '板级配置文件名（位于 project/cfg/BoardConfig_IPC/）'
+        required: false
+        default: 'BoardConfig-SD_CARD-Buildroot-RV1103_Luckfox_Pico-IPC.mk'
+      on_cache_miss:
+        description: '内核缓存未命中时: build=现场编译内核 / fail=直接失败(先跑 build.yml 产缓存)'
+        required: false
+        default: 'build'
+        type: choice
+        options:
+          - build
+          - fail
+      force_kernel_build:
+        description: '强制重编内核（改了内核源码/配置后用，忽略缓存直接增量编译）'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  BOARD_CONFIG_FILE: ${{ github.event.inputs.board_config || 'BoardConfig-SD_CARD-Buildroot-RV1103_Luckfox_Pico-IPC.mk' }}
+  TOOLCHAIN_DIR: tools/linux/toolchain/arm-rockchip830-linux-uclibcgnueabihf
+  KERNEL_DIR: sysdrv/source/kernel
+  KERNEL_OUT: sysdrv/source/objs_kernel
+
+jobs:
+  build-modules:
+    name: Build Kernel Modules
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout SDK
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git make gcc libssl-dev bison flex bc libncurses-dev \
+            device-tree-compiler rsync cpio python-is-python3
+
+      - name: Select board config (non-interactive lunch)
+        run: |
+          CFG="project/cfg/BoardConfig_IPC/${BOARD_CONFIG_FILE}"
+          [ -f "$CFG" ] || { echo "板级配置不存在: $CFG"; ls project/cfg/BoardConfig_IPC/; exit 1; }
+          ln -sf "$CFG" .BoardConfig.mk
+
+      - name: Setup cross-compilation toolchain
+        run: |
+          cd $TOOLCHAIN_DIR
+          source ./env_install_toolchain.sh
+          echo "$PWD/bin" >> $GITHUB_PATH
+
+      # 与 build.yml 共用同一份内核 out 缓存（key 完全一致）
+      # 精确命中主 key 时 cache-hit=true，后续内核编译步骤整体跳过
+      - name: Cache kernel output dir
+        id: kernel-cache
+        uses: actions/cache@v4
+        with:
+          path: sysdrv/source/objs_kernel
+          key: kernel-objs-${{ runner.os }}-${{ hashFiles(format('project/cfg/BoardConfig_IPC/{0}', env.BOARD_CONFIG_FILE), 'sysdrv/source/kernel/Makefile') }}
+
+      # 仅在 缓存未命中 或 强制重编 时执行；
+      # 命中缓存则本步跳过，直接进入模块编译（秒级流水线）
+      - name: Build kernel (skipped on cache hit)
+        if: ${{ steps.kernel-cache.outputs.cache-hit != 'true' || github.event.inputs.force_kernel_build == 'true' }}
+        env:
+          ON_CACHE_MISS: ${{ github.event.inputs.on_cache_miss }}
+          FORCE_BUILD: ${{ github.event.inputs.force_kernel_build }}
+        run: |
+          if [ "$FORCE_BUILD" != "true" ] && [ "$ON_CACHE_MISS" = "fail" ]; then
+            echo "::error::内核缓存未命中 (key=${{ steps.kernel-cache.outputs.cache-primary-key }})"
+            echo "请先手动触发 build.yml 产生内核缓存, 或将 on_cache_miss 设为 build"
+            exit 1
+          fi
+          ./build.sh kernel
+
+      - name: Verify kernel build env
+        run: |
+          test -f $KERNEL_OUT/Module.symvers || { echo "Module.symvers 缺失，无法进行外部模块构建"; exit 1; }
+          grep -q "CONFIG_MODVERSIONS=y" $KERNEL_OUT/.config || echo "提示: 内核未启用 MODVERSIONS, 缺失符号仅告警不阻断"
+
+      - name: Build modules
+        env:
+          MODULE_PATHS: ${{ github.event.inputs.module_paths }}
+        run: |
+          set -e
+          for mod in $MODULE_PATHS; do
+            echo "=========================================="
+            echo ">>> 构建: $mod"
+            [ -d "$mod" ] || { echo "模块目录不存在: $mod"; exit 1; }
+            [ -f "$mod/Makefile" ] || { echo "缺少 Makefile: $mod"; exit 1; }
+
+            if grep -q "Makefile.param" "$mod/Makefile"; then
+              echo ">>> 风格: SDK 外置模块 (Makefile.param)"
+              make -C "$mod" -j"$(nproc)"
+            else
+              echo ">>> 风格: 纯 kbuild (obj-m)"
+              make -C $KERNEL_DIR \
+                   O="$GITHUB_WORKSPACE/$KERNEL_OUT" \
+                   ARCH=arm \
+                   CROSS_COMPILE="$GITHUB_WORKSPACE/$TOOLCHAIN_DIR/bin/arm-rockchip830-linux-uclibcgnueabihf-" \
+                   M="$GITHUB_WORKSPACE/$mod" \
+                   modules -j"$(nproc)"
+            fi
+          done
+
+      - name: Verify and list artifacts
+        run: |
+          echo "=== 产物清单 ==="
+          find . -maxdepth 4 -name "*.ko" -newer .BoardConfig.mk -type f | tee /tmp/ko.list
+          echo "=== 模块信息 (vermagic 应与内核一致) ==="
+          while read -r ko; do
+            echo "--- $ko"
+            modinfo "$ko" 2>/dev/null | grep -E "^(filename|version|vermagic|license|depends):" || file "$ko"
+          done < /tmp/ko.list
+
+      - name: Upload kernel modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-modules-${{ github.run_number }}
+          path: |
+            sysdrv/drv_ko/out/*.ko
+            **/*.ko
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: module-build-logs-${{ github.run_number }}
+          path: |
+            output/
+            sysdrv/source/objs_kernel/.config
+          if-no-files-found: ignore
+          retention-days: 3

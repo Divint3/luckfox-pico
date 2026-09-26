@@ -92,6 +92,16 @@ jobs:
           echo "$PWD/bin" >> $GITHUB_PATH
           arm-rockchip830-linux-uclibcgnueabihf-gcc --version | head -1
 
+      # 缓存内核 out 目录（含 Module.symvers 符号表）：
+      #  - 命中后 allsave 内核阶段增量编译，耗时大减
+      #  - 后续若增加内核模块编译步骤，可直接 M= 快速构建，无需重编内核
+      # key 绑定板级配置 + 内核版本，任一变化自动失效重建
+      - name: Cache kernel output dir
+        uses: actions/cache@v4
+        with:
+          path: sysdrv/source/objs_kernel
+          key: kernel-objs-${{ runner.os }}-${{ hashFiles(format('project/cfg/BoardConfig_IPC/{0}', env.BOARD_CONFIG_FILE), 'sysdrv/source/kernel/Makefile') }}
+
       - name: Build all and pack firmware
         run: |
           ./build.sh allsave
