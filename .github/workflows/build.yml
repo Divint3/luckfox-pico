@@ -59,14 +59,17 @@ jobs:
             pkg-config bc python-is-python3 passwd openssl openssh-server \
             openssh-client vim file cpio rsync libncurses-dev
 
-      # 缓存 buildroot 下载目录，避免每次 CI 重新拉取全部源码包
-      - name: Cache buildroot downloads
+      # 缓存整个 buildroot 目录（含解压后的树、预置 defconfig、已下载源码包）。
+      # 注意：不能只缓存 dl 子目录——sysdrv 的 rootfs 逻辑用
+      # "test -d buildroot-2023.02.6 || (解压+拷贝defconfig)" 做惰性初始化，
+      # 只缓存 dl 会建出空的 buildroot-2023.02.6 目录，导致
+      # luckfox_pico_defconfig 拷贝被跳过，报 "No rule to make target"。
+      # key 绑定 buildroot 资源文件（tar/defconfig/patch）哈希，SDK 更新后自动失效重建。
+      - name: Cache buildroot tree
         uses: actions/cache@v4
         with:
-          path: sysdrv/source/buildroot/buildroot-2023.02.6/dl
-          key: buildroot-dl-${{ runner.os }}-${{ hashFiles('sysdrv/source/buildroot/**/*.mk') }}
-          restore-keys: |
-            buildroot-dl-${{ runner.os }}-
+          path: sysdrv/source/buildroot
+          key: buildroot-tree-${{ runner.os }}-${{ hashFiles('sysdrv/tools/board/buildroot/**') }}
 
       - name: Select board config (non-interactive lunch)
         # 等价于 ./build.sh lunch：直接建立 .BoardConfig.mk 符号链接
