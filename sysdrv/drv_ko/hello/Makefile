@@ -1,3 +1,5 @@
+ccflags-y += -std=gnu11
+
 ifeq ($(SYSDRV_PARAM), )
 	SYSDRV_PARAM:=../../Makefile.param
 	include $(SYSDRV_PARAM)

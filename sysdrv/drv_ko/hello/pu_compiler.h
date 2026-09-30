@@ -48,11 +48,6 @@
 // GCC通过section指定.noinit段实现非初始化，需结合链接脚本NOLOAD
 #define PU_COMPILER_NOINIT        __attribute__((section(".noinit"), used))
 // GCC/Clang 静态断言：C11 static_assert 或 _Static_assert
-#if __STDC_VERSION__ >= 201112L
-#define PU_COMPILER_STATIC_ASSERT(expr, msg) static_assert(expr, msg)
-#else
-#define PU_COMPILER_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)
-#endif
 
 #elif defined(__ICCARM__)
 // IAR Embedded Workbench (ARM)
