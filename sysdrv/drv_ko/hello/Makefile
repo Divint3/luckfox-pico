@@ -20,8 +20,8 @@ ifneq ($(SYSDRV_KERNEL_OBJS_OUTPUT_DIR),)
 __HELLO_KERNEL_O__ := O=$(SYSDRV_KERNEL_OBJS_OUTPUT_DIR)
 endif
 
-obj-m := $(MODULE_NAME).o
-hello-objs := $(OBJ)
+obj-m := hello.o
+hello-objs := meter_uart.o nor_flash_simulator.o pu_bitmap.o pu_doublecheck_bitmap.o pu_mem_pool.o pu_mem_tracker.o pu_ndb.o pu_queue.o pu_ringbuffer.o pu_util.o rn8209_driver.o rn8209_sample.o
 all: modules
 	@echo "build $(MODULE_NAME) done"
 
