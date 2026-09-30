@@ -1,4 +1,3 @@
-ccflags-y += -std=gnu11
 
 ifeq ($(SYSDRV_PARAM), )
 	SYSDRV_PARAM:=../../Makefile.param
@@ -24,6 +23,7 @@ endif
 
 obj-m := hello.o
 hello-objs := meter_uart.o nor_flash_simulator.o pu_bitmap.o pu_doublecheck_bitmap.o pu_mem_pool.o pu_mem_tracker.o pu_ndb.o pu_queue.o pu_ringbuffer.o pu_util.o rn8209_driver.o rn8209_sample.o
+ccflags-y += -std=gnu11 -Wno-declaration-after-statement
 all: modules
 	@echo "build $(MODULE_NAME) done"
 
