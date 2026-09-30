@@ -28,6 +28,7 @@ all: modules
 .PHONY: modules clean
 
 modules:
+	@echo "OBJ = $(OBJ)"
 	$(MAKE) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) $(__HELLO_KERNEL_O__) \
 		-C $(KERNEL_DIR) M=$(HELLO_CURRENT_DIR) modules -j$(SYSDRV_JOBS)
 	cp -v $(HELLO_CURRENT_DIR)/$(MODULE_NAME).ko $(M_OUT_DIR)
