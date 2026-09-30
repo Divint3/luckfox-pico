@@ -8,6 +8,8 @@ ifeq ($(RK_PROJECT_OUTPUT),)
 -include $(HELLO_CURRENT_DIR)/../../../.BoardConfig.mk
 endif
 
+SRC_HELLO := $(wildcard $(HELLO_CURRENT_DIR)/*.c)
+OBJ := $(patsubst $(HELLO_CURRENT_DIR)/%.c,%.o,$(SRC_HELLO))
 M_OUT_DIR ?= $(HELLO_CURRENT_DIR)/../out
 MODULE_NAME := hello
 
@@ -18,7 +20,7 @@ __HELLO_KERNEL_O__ := O=$(SYSDRV_KERNEL_OBJS_OUTPUT_DIR)
 endif
 
 obj-m := $(MODULE_NAME).o
-
+$(MODULE_NAME)-objs := $(OBJ)
 all: modules
 	@echo "build $(MODULE_NAME) done"
 
