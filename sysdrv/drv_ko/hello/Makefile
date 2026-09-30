@@ -21,7 +21,7 @@ __HELLO_KERNEL_O__ := O=$(SYSDRV_KERNEL_OBJS_OUTPUT_DIR)
 endif
 
 obj-m := $(MODULE_NAME).o
-$(MODULE_NAME)-objs := $(OBJ)
+hello-objs := $(OBJ)
 all: modules
 	@echo "build $(MODULE_NAME) done"
 
