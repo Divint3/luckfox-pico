@@ -3,7 +3,8 @@ ifeq ($(SYSDRV_PARAM), )
 	include $(SYSDRV_PARAM)
 endif
 
-HELLO_CURRENT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+#HELLO_CURRENT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+HELLO_CURRENT_DIR := $(shell pwd)
 ifeq ($(RK_PROJECT_OUTPUT),)
 -include $(HELLO_CURRENT_DIR)/../../../.BoardConfig.mk
 endif
