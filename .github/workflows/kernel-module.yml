@@ -29,8 +29,8 @@ on:
         default: 'build'
         type: choice
         options:
-          - build
           - fail
+          - build
       force_kernel_build:
         description: '强制重编内核（改了内核源码/配置后用，忽略缓存直接增量编译）'
         required: false
@@ -54,11 +54,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
 
       - name: Install dependencies
         run: |
