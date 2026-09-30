@@ -5,6 +5,7 @@
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
 #include <linux/string.h>
+#include <linux/version.h>
 
 #include "meter_uart.h"
 #include "nor_flash_simulator.h"
@@ -188,7 +189,12 @@ static int rn8209_device_init(void) {
 
   struct device *rn8209_device;
   major = register_chrdev(0, "rn8209", &rn8209_device_ops);
-  cls = class_create("rn8209_class");
+  #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+    cls = class_create("rn8209_class");
+#else
+    cls = class_create(THIS_MODULE, "rn8209_class");
+#endif
+
   // 创建mytest_device设备
   rn8209_device = device_create(cls, 0, MKDEV(major, 0), NULL, "rn8209_device");
 

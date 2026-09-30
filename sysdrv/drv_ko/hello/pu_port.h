@@ -149,21 +149,31 @@ static inline double pu_port_asin(double x) {
  *   void kernel_neon_end(struct user_fpsimd_state *);
  * 需要调用方提供保存缓冲区，因此 PU_FP_STATE() 必须与 BEGIN/END 成对出现在同一函数内。
  */
-#if defined(CONFIG_ARM64) || defined(CONFIG_ARM)
+
+#if defined(CONFIG_ARM64)
 #include <asm/neon.h>
 #define PU_FP_STATE() struct user_fpsimd_state pu_fp_state
 #define PU_FP_BEGIN() kernel_neon_begin(&pu_fp_state)
 #define PU_FP_END()   kernel_neon_end(&pu_fp_state)
+
+#elif defined(CONFIG_ARM)
+#include <asm/neon.h>
+#define PU_FP_STATE()
+#define PU_FP_BEGIN() kernel_neon_begin()
+#define PU_FP_END()   kernel_neon_end()
+
 #elif defined(CONFIG_X86) || defined(CONFIG_X86_64)
 #include <asm/fpu/api.h>
 #define PU_FP_STATE()
 #define PU_FP_BEGIN() kernel_fpu_begin()
 #define PU_FP_END()   kernel_fpu_end()
+
 #else
 #define PU_FP_STATE()
 #define PU_FP_BEGIN()
 #define PU_FP_END()
 #endif
+
 
 #else /* 用户态 */
 

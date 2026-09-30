@@ -26,7 +26,7 @@ on:
       on_cache_miss:
         description: '内核缓存未命中时: build=现场编译内核 / fail=直接失败(先跑 build.yml 产缓存)'
         required: false
-        default: 'build'
+        default: 'fail'
         type: choice
         options:
           - fail
